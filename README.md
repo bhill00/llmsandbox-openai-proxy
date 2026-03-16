@@ -144,20 +144,28 @@ These are just aliases for convenience — no GPT models are available through t
 
 ### What doesn't work
 
-- **Function calling / tool use** — the Sandbox API accepts tool content types but doesn't return structured tool_use blocks in responses. Tools that rely on structured function call responses (Cursor's edit mode, some LangChain agents) will not work.
+- **Structured function calling** — the proxy does not return OpenAI-style `tool_calls` in responses. If your code checks `response.choices[0].message.tool_calls`, it won't find anything. See the note on tool use below.
 - **Embeddings** (`/v1/embeddings`) — completely different API, not available through the Sandbox
 - **Files / Assistants / Threads API** — OpenAI-specific features with no Sandbox equivalent
 - **Accurate token usage** — `usage.prompt_tokens` is always 0 (the Sandbox doesn't report input counts). `completion_tokens` is a rough estimate (~4 chars per token). Do not rely on these for cost tracking.
 - **Logprobs, batching** — not exposed by the Sandbox
 
+### A note on tool use / function calling
+
+Most projects using the OpenAI API don't actually use function calling. If your code sends messages and reads the text response, the proxy works fine. Function calling is primarily used by agent frameworks (LangChain agents, Cursor's edit mode, etc.) — not by chat completions, RAG pipelines, code generation, content workflows, or data processing scripts.
+
+If you do need tool-like behavior, **prompt-engineered tool use works**. The model will respond with structured JSON when asked to use tools via the prompt (tested and confirmed). You define tools in your system prompt, the model responds with JSON indicating which tool to call, your code parses it and executes locally, then sends the result back. This is less reliable than native structured `tool_calls` (the model might occasionally break format), but it's functional for most use cases.
+
+What specifically doesn't work is the OpenAI structured tool calling protocol — where you send a `tools` array in the request and get back `tool_calls` objects in the response with guaranteed-valid JSON. Tools that depend on this protocol (Cursor's edit mode, some LangChain agents) will not work.
+
 ### Tool compatibility at a glance
 
-- **OpenAI Python SDK** — works well for chat completions
-- **LangChain / LlamaIndex** — works for basic chains. Breaks if agents need function calling.
-- **Aider** — works reasonably well (uses chat completions, parses code from text)
-- **Open WebUI** — basic chat works. Plugin/tool features won't.
+- **OpenAI Python SDK** — works well for chat completions and vision
+- **LangChain / LlamaIndex** — chains work. Agents that need structured function calling don't.
+- **Aider** — works well (uses chat completions, parses code from text responses)
+- **Open WebUI** — basic chat works. Plugin/tool features that rely on function calling won't.
 - **Continue (VS Code)** — basic chat works. Autocomplete and codebase features need function calling/embeddings.
-- **Cursor** — core edit/compose features rely heavily on streaming and function calling. Basic chat tab might work.
+- **Cursor** — core edit/compose features rely on structured function calling. Basic chat tab might work.
 - **Custom scripts / notebooks** — best use case. Change `base_url` and go.
 
 ## Important: Token Cost
