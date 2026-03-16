@@ -93,11 +93,11 @@ Environment variables:
 
 You can use either Sandbox model names or common OpenAI names:
 
-- `claude-v4.5-sonnet` / `gpt-4` / `gpt-4o` → Claude Sonnet 4.5
+- `claude-v4.5-sonnet` / `claude-sonnet-4-5` / `gpt-4` / `gpt-4o` / `gpt-4-turbo` → Claude Sonnet 4.5
 - `claude-v4-sonnet` / `claude-sonnet-4` → Claude Sonnet 4
-- `claude-v3.5-sonnet` / `gpt-3.5-turbo` → Claude Sonnet 3.5
+- `claude-v3.5-sonnet` / `claude-3.5-sonnet` / `gpt-3.5-turbo` → Claude Sonnet 3.5
 
-Or pass any model name the Sandbox supports directly — it will be forwarded as-is if there's no mapping.
+Or pass any model name the Sandbox supports directly — it will be forwarded as-is if there's no mapping. Check with your sandbox administrator for the full list of available models.
 
 ## Compatibility
 
@@ -115,7 +115,7 @@ Or pass any model name the Sandbox supports directly — it will be forwarded as
 - **Vision / image inputs** — multimodal content is not supported through the proxy
 - **Embeddings** (`/v1/embeddings`) — completely different API, not available through the Sandbox
 - **Files / Assistants / Threads API** — OpenAI-specific features with no Sandbox equivalent
-- **Accurate token usage** — `usage.prompt_tokens` is estimated since the Sandbox doesn't report actual counts
+- **Accurate token usage** — `usage.prompt_tokens` is always 0 (the Sandbox doesn't report input counts). `completion_tokens` is a rough estimate (~4 chars per token). Do not rely on these for cost tracking.
 - **Logprobs, batching** — not exposed by the Sandbox
 
 ### Tool compatibility at a glance
@@ -130,9 +130,11 @@ Or pass any model name the Sandbox supports directly — it will be forwarded as
 
 ## Important: Token Cost
 
-The Sandbox has **no prompt caching**. Every token is full price, every turn. The proxy flattens your messages[] array into a single prompt, which means longer conversation histories = proportionally more tokens per request. See the [llmsandbox-extension README](https://github.com/bhill00/llmsandbox-extension#token-cost-is-the-real-constraint-not-context-window-size) for the full cost analysis.
+The Sandbox has **no prompt caching**. Every token is full price, every turn. The proxy flattens your entire messages[] array into a single prompt, so longer conversation histories = proportionally more tokens per request. Unlike the standard OpenAI API where prompt caching discounts repeated prefixes, here every token in every request costs the same.
 
-Keep conversations short. Reset often. This is not the place for 100-turn sessions.
+The client (Aider, LangChain, your script) manages the messages array and sends it in full each time. The proxy does not do any context compression — it's a format translator only. If your client sends 50 messages in the array, all 50 get flattened and sent.
+
+Keep conversations short. Reset often. See the [llmsandbox-extension README](https://github.com/bhill00/llmsandbox-extension#understanding-context-tokens-and-cost) for a detailed cost analysis.
 
 ## License
 
