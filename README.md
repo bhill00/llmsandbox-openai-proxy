@@ -152,11 +152,15 @@ These are just aliases for convenience — no GPT models are available through t
 
 ### A note on tool use / function calling
 
-Most projects using the OpenAI API don't actually use function calling. If your code sends messages and reads the text response, the proxy works fine. Function calling is primarily used by agent frameworks (LangChain agents, Cursor's edit mode, etc.) — not by chat completions, RAG pipelines, code generation, content workflows, or data processing scripts.
+There are three levels of tool use to understand:
 
-If you do need tool-like behavior, **prompt-engineered tool use works**. The model will respond with structured JSON when asked to use tools via the prompt (tested and confirmed). You define tools in your system prompt, the model responds with JSON indicating which tool to call, your code parses it and executes locally, then sends the result back. This is less reliable than native structured `tool_calls` (the model might occasionally break format), but it's functional for most use cases.
+**Server-side tools (works transparently):** If your bot has Agent mode enabled with tools like Internet Search or Knowledge Base, the backend executes them automatically. The client sends a normal message, the backend decides whether to search the web or query documents, and returns the final answer. No special client code needed — tested and confirmed working through the proxy.
 
-What specifically doesn't work is the OpenAI structured tool calling protocol — where you send a `tools` array in the request and get back `tool_calls` objects in the response with guaranteed-valid JSON. Tools that depend on this protocol (Cursor's edit mode, some LangChain agents) will not work.
+**Prompt-engineered client-side tools (works with caveats):** The model will respond with structured JSON when asked to use tools via the prompt. You define tools in your system prompt, the model responds with JSON indicating which tool to call, your code parses it and executes locally, then sends the result back. Less reliable than native structured `tool_calls` (the model might occasionally break format), but functional for most use cases.
+
+**OpenAI structured tool calling protocol (does not work):** Sending a `tools` array in the request and getting back `tool_calls` objects in the response with guaranteed-valid JSON. The Bot API doesn't expose a field for client-provided tool definitions. Tools that depend on this protocol (Cursor's edit mode, some LangChain agents) will not work.
+
+Most projects using the OpenAI API don't use function calling at all. Chat completions, RAG pipelines, code generation, content workflows, and data processing scripts all work fine without it.
 
 ### Tool compatibility at a glance
 
