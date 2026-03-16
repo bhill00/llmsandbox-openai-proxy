@@ -4,7 +4,7 @@ A lightweight proxy that exposes an **OpenAI-compatible API** (`/v1/chat/complet
 
 ## Why
 
-The LLM Sandbox Bot API is stateless and async — it doesn't accept the standard `messages[]` array format that most tools expect. This proxy bridges that gap so you can use the Sandbox from tools, libraries, and scripts that were built for the OpenAI API.
+The LLM Sandbox Bot API doesn't accept the standard `messages[]` array format that most tools expect. It takes a single text message per request, and responses require polling rather than returning directly. This proxy bridges that gap — it accepts OpenAI-format requests, flattens the messages into a single prompt, handles the polling, and returns a standard OpenAI-format response.
 
 ## Quick Start
 
