@@ -91,13 +91,20 @@ Environment variables:
 
 ## Model Names
 
-You can use either Sandbox model names or common OpenAI names:
+The Sandbox models use names like `claude-v4.5-sonnet`. Use these directly:
 
-- `claude-v4.5-sonnet` / `claude-sonnet-4-5` / `gpt-4` / `gpt-4o` / `gpt-4-turbo` → Claude Sonnet 4.5
-- `claude-v4-sonnet` / `claude-sonnet-4` → Claude Sonnet 4
-- `claude-v3.5-sonnet` / `claude-3.5-sonnet` / `gpt-3.5-turbo` → Claude Sonnet 3.5
+- `claude-v4.5-sonnet` — Claude Sonnet 4.5
+- `claude-v4-sonnet` — Claude Sonnet 4
+- `claude-v3.5-sonnet` — Claude Sonnet 3.5
 
-Or pass any model name the Sandbox supports directly — it will be forwarded as-is if there's no mapping. Check with your sandbox administrator for the full list of available models.
+Check with your sandbox administrator for the full list of available models (including Amazon Nova and others). Any model name is passed through to the Sandbox as-is.
+
+**Convenience aliases:** If you have existing code that uses OpenAI model names, the proxy maps them automatically so you don't have to change your code:
+
+- `gpt-4`, `gpt-4o`, `gpt-4-turbo` → routes to `claude-v4.5-sonnet`
+- `gpt-3.5-turbo` → routes to `claude-v3.5-sonnet`
+
+These are just aliases for convenience — no GPT models are available through the Sandbox.
 
 ## Compatibility
 
