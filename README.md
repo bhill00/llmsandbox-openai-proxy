@@ -213,7 +213,7 @@ Most projects using the OpenAI API don't use function calling at all. Chat compl
 
 - **OpenAI Python SDK** — works well for chat completions and vision
 - **LangChain / LlamaIndex** — chains work. Agents that need structured function calling don't.
-- **Cline (VS Code)** — works well with `MEMORY_MODE=client`. Cline uses XML-based tool calls parsed from text, not structured function calling, so file edits and terminal commands work. Response latency is noticeable due to polling.
+- **Cline (VS Code)** — experimental. Requires `MEMORY_MODE=client`. Basic tasks work but polling latency can cause timeouts on longer exchanges.
 - **Aider** — works well (uses chat completions, parses code from text responses). Use `MEMORY_MODE=client`.
 - **Open WebUI** — basic chat works. Plugin/tool features that rely on function calling won't.
 - **Continue (VS Code)** — basic chat works. Autocomplete and codebase features need function calling/embeddings.
