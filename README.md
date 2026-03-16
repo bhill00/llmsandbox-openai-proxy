@@ -118,8 +118,8 @@ These are just aliases for convenience — no GPT models are available through t
 
 ### What doesn't work
 
-- **Function calling / tool use** — the Sandbox API has no native tool schema support. Tools that rely on structured function call responses (Cursor's edit mode, some LangChain agents) will not work.
-- **Vision / image inputs** — multimodal content is not supported through the proxy
+- **Function calling / tool use** — the Sandbox API accepts tool content types but doesn't return structured tool_use blocks in responses. Tools that rely on structured function call responses (Cursor's edit mode, some LangChain agents) will not work.
+- **Vision / image inputs** — the Sandbox API does support image inputs natively (tested and confirmed), but the proxy does not currently translate OpenAI's image_url format to the Sandbox's base64 image format. This could be added in a future update.
 - **Embeddings** (`/v1/embeddings`) — completely different API, not available through the Sandbox
 - **Files / Assistants / Threads API** — OpenAI-specific features with no Sandbox equivalent
 - **Accurate token usage** — `usage.prompt_tokens` is always 0 (the Sandbox doesn't report input counts). `completion_tokens` is a rough estimate (~4 chars per token). Do not rely on these for cost tracking.
