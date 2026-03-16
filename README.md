@@ -144,7 +144,7 @@ Environment variables:
 
 - `BEDROCK_API_URL` (required) — LLM Sandbox Bot API URL
 - `BEDROCK_API_KEY` (required) — LLM Sandbox API key
-- `MEMORY_MODE` (default: `server`) — `server` sends only the last user message and lets the server track history; `client` flattens the full messages[] array into every request (legacy behavior)
+- `MEMORY_MODE` (default: `server`) — `server` sends only the last user message and lets the server track history; `client` flattens the full messages[] array into every request. Use `client` for tools like Cline or Aider that manage their own conversation history — server mode would double the context. Use `server` for simple scripts or one-shot API calls.
 - `POLL_INTERVAL` (default: 2) — seconds between polling attempts
 - `POLL_TIMEOUT` (default: 60) — max seconds to wait for a response
 - `DEFAULT_MODEL` (default: claude-v4.5-sonnet) — model used when none specified
@@ -213,7 +213,8 @@ Most projects using the OpenAI API don't use function calling at all. Chat compl
 
 - **OpenAI Python SDK** — works well for chat completions and vision
 - **LangChain / LlamaIndex** — chains work. Agents that need structured function calling don't.
-- **Aider** — works well (uses chat completions, parses code from text responses)
+- **Cline (VS Code)** — works well with `MEMORY_MODE=client`. Cline uses XML-based tool calls parsed from text, not structured function calling, so file edits and terminal commands work. Response latency is noticeable due to polling.
+- **Aider** — works well (uses chat completions, parses code from text responses). Use `MEMORY_MODE=client`.
 - **Open WebUI** — basic chat works. Plugin/tool features that rely on function calling won't.
 - **Continue (VS Code)** — basic chat works. Autocomplete and codebase features need function calling/embeddings.
 - **Cursor** — core edit/compose features rely on structured function calling. Basic chat tab might work.
