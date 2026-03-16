@@ -14,7 +14,7 @@ import os
 import uuid
 import time
 import logging
-from typing import Optional
+from typing import Dict, List, Optional, Tuple, Union
 
 import requests
 from fastapi import FastAPI, HTTPException
@@ -65,11 +65,11 @@ def resolve_model(model: str) -> str:
 # Session state: one conversation per proxy instance (simple approach)
 # For multi-user support, you'd key by a session/API-key header.
 # ---------------------------------------------------------------------------
-conversations: dict[str, dict] = {}
+conversations: Dict[str, Dict] = {}
 # conversations[conv_id] = {"parent_message_id": str|None}
 
 
-def get_or_create_conversation(conv_id: str | None = None) -> tuple[str, str | None]:
+def get_or_create_conversation(conv_id: Optional[str] = None) -> Tuple[str, Optional[str]]:
     """Return (conversation_id, parent_message_id)."""
     if conv_id and conv_id in conversations:
         return conv_id, conversations[conv_id]["parent_message_id"]
@@ -96,17 +96,17 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 class Message(BaseModel):
     role: str
-    content: str | list | None = None
+    content: Union[str, list, None] = None
     name: Optional[str] = None
 
 
 class ChatCompletionRequest(BaseModel):
     model: str = DEFAULT_MODEL
-    messages: list[Message]
+    messages: List[Message]
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     stream: Optional[bool] = False
-    stop: Optional[str | list[str]] = None
+    stop: Optional[Union[str, List[str]]] = None
     # We accept but ignore these OpenAI-specific fields
     top_p: Optional[float] = None
     frequency_penalty: Optional[float] = None
@@ -125,7 +125,7 @@ def estimate_tokens(text: str) -> int:
     return len(text) // CHARS_PER_TOKEN
 
 
-def assemble_prompt(messages: list[Message]) -> str:
+def assemble_prompt(messages: List[Message]) -> str:
     """Convert an OpenAI messages[] array into a single prompt string.
 
     This is the key translation layer. The Sandbox API expects a single
@@ -186,10 +186,10 @@ def poll_for_reply(conversation_id: str, user_message_id: str) -> str:
 
 
 def call_sandbox(
-    messages: list[Message],
+    messages: List[Message],
     model: str,
-    conversation_id: str | None = None,
-) -> tuple[str, str, str]:
+    conversation_id: Optional[str] = None,
+) -> Tuple[str, str, str]:
     """Send a request to the Sandbox API and return (reply, model_used, conversation_id)."""
     sandbox_model = resolve_model(model)
     conv_id, parent_message_id = get_or_create_conversation(conversation_id)
