@@ -15,13 +15,13 @@ import os
 import uuid
 import time
 import logging
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("llmsandbox-proxy")
@@ -35,6 +35,7 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "2"))
 POLL_TIMEOUT = int(os.environ.get("POLL_TIMEOUT", "60"))
 POLL_MAX_ATTEMPTS = max(1, POLL_TIMEOUT // max(1, POLL_INTERVAL))
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-v4.5-sonnet")
+MEMORY_MODE = os.environ.get("MEMORY_MODE", "server")  # "server" or "client"
 
 if not API_URL or not API_KEY:
     raise RuntimeError("BEDROCK_API_URL and BEDROCK_API_KEY must be set")
@@ -46,14 +47,16 @@ BOT_HEADERS = {"x-api-key": API_KEY, "Content-Type": "application/json"}
 # Users can use either the OpenAI-style name or the Sandbox name directly.
 # ---------------------------------------------------------------------------
 MODEL_MAP = {
-    # Claude models
+    # OpenAI-style names → Sandbox defaults
     "gpt-4": DEFAULT_MODEL,
     "gpt-4o": DEFAULT_MODEL,
     "gpt-4-turbo": DEFAULT_MODEL,
-    "gpt-3.5-turbo": "claude-v3.5-sonnet",
+    "gpt-3.5-turbo": "claude-v4.5-haiku",
+    # Anthropic API names → Sandbox names
+    "claude-opus-4-6": "claude-v4.6-opus",
+    "claude-opus-4-5": "claude-v4.5-opus",
     "claude-sonnet-4-5": "claude-v4.5-sonnet",
-    "claude-sonnet-4": "claude-v4-sonnet",
-    "claude-3.5-sonnet": "claude-v3.5-sonnet",
+    "claude-haiku-4-5": "claude-v4.5-haiku",
 }
 
 
@@ -63,20 +66,11 @@ def resolve_model(model: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Session state: one conversation per proxy instance (simple approach)
-# For multi-user support, you'd key by a session/API-key header.
+# Session state
+# Server mode: track conversationId so multi-turn reuses the same thread.
+# Client mode: no state — every call is a fresh conversation.
 # ---------------------------------------------------------------------------
-conversations: Dict[str, Dict] = {}
-# conversations[conv_id] = {"parent_message_id": str|None}
-
-
-def get_or_create_conversation(conv_id: Optional[str] = None) -> Tuple[str, Optional[str]]:
-    """Return (conversation_id, parent_message_id)."""
-    if conv_id and conv_id in conversations:
-        return conv_id, conversations[conv_id]["parent_message_id"]
-    new_id = conv_id or str(uuid.uuid4())
-    conversations[new_id] = {"parent_message_id": None}
-    return new_id, None
+server_conversation_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +161,52 @@ def _extract_image_content(block: dict) -> Optional[dict]:
         return None
 
 
+def extract_last_user_message(messages: List[Message]) -> List[dict]:
+    """Extract only the last user message for server memory mode.
+
+    The server reconstructs full history via trace_to_root(), so we only
+    need to send the newest user turn.  No role prefix — the server knows
+    it comes from the user.
+    """
+    for msg in reversed(messages):
+        if msg.role != "user":
+            continue
+        raw = msg.content
+        if raw is None:
+            continue
+
+        content_blocks: List[dict] = []
+        if isinstance(raw, str):
+            content_blocks.append({"contentType": "text", "body": raw})
+        elif isinstance(raw, list):
+            text_parts: List[str] = []
+            for block in raw:
+                if isinstance(block, str):
+                    text_parts.append(block)
+                elif isinstance(block, dict):
+                    block_type = block.get("type", "")
+                    if block_type == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif block_type == "image_url":
+                        if text_parts:
+                            content_blocks.append({
+                                "contentType": "text",
+                                "body": " ".join(text_parts),
+                            })
+                            text_parts = []
+                        img = _extract_image_content(block)
+                        if img:
+                            content_blocks.append(img)
+            if text_parts:
+                content_blocks.append({
+                    "contentType": "text",
+                    "body": " ".join(text_parts),
+                })
+        return content_blocks
+
+    return [{"contentType": "text", "body": ""}]
+
+
 def assemble_content(messages: List[Message]) -> List[dict]:
     """Convert an OpenAI messages[] array into a Sandbox content array.
 
@@ -231,30 +271,26 @@ def assemble_content(messages: List[Message]) -> List[dict]:
     return content_blocks
 
 
-def poll_for_reply(conversation_id: str, user_message_id: str) -> str:
-    """Poll GET endpoint until the assistant reply appears."""
+def poll_for_reply(conversation_id: str, message_id: str) -> str:
+    """Poll the per-message endpoint until the assistant reply appears."""
     for attempt in range(POLL_MAX_ATTEMPTS):
         time.sleep(POLL_INTERVAL)
         resp = requests.get(
-            f"{API_URL}/conversation/{conversation_id}",
+            f"{API_URL}/conversation/{conversation_id}/{message_id}",
             headers=BOT_HEADERS,
         )
+        # 404 means the reply message doesn't exist yet — keep polling
+        if resp.status_code == 404:
+            log.debug("Poll attempt %d/%d — reply not created yet", attempt + 1, POLL_MAX_ATTEMPTS)
+            continue
         resp.raise_for_status()
         data = resp.json()
 
-        msg_map = data.get("messageMap", {})
-        user_msg = msg_map.get(user_message_id, {})
-        children = user_msg.get("children", [])
-        if children:
-            assistant_msg = msg_map.get(children[0], {})
-            if assistant_msg.get("role") == "assistant":
-                return assistant_msg.get("content", [{}])[0].get("body", "")
-
-        # Fallback: check lastMessageId
-        last_id = data.get("lastMessageId")
-        last_msg = msg_map.get(last_id, {})
-        if last_msg.get("role") == "assistant":
-            return last_msg.get("content", [{}])[0].get("body", "")
+        msg = data.get("message", {})
+        if msg.get("role") == "assistant":
+            content = msg.get("content", [])
+            if content:
+                return content[0].get("body", "")
 
         log.debug("Poll attempt %d/%d — no reply yet", attempt + 1, POLL_MAX_ATTEMPTS)
 
@@ -264,14 +300,18 @@ def poll_for_reply(conversation_id: str, user_message_id: str) -> str:
 def call_sandbox(
     messages: List[Message],
     model: str,
-    conversation_id: Optional[str] = None,
-) -> Tuple[str, str, str]:
-    """Send a request to the Sandbox API and return (reply, model_used, conversation_id)."""
-    sandbox_model = resolve_model(model)
-    conv_id, parent_message_id = get_or_create_conversation(conversation_id)
+) -> Tuple[str, str]:
+    """Send a request to the Sandbox API and return (reply, model_used)."""
+    global server_conversation_id
 
-    content_blocks = assemble_content(messages)
-    message_id = str(uuid.uuid4())
+    sandbox_model = resolve_model(model)
+
+    if MEMORY_MODE == "server":
+        content_blocks = extract_last_user_message(messages)
+        conv_id = server_conversation_id or str(uuid.uuid4())
+    else:
+        content_blocks = assemble_content(messages)
+        conv_id = str(uuid.uuid4())  # fresh conversation every call
 
     # Estimate tokens from text blocks only
     text_total = sum(
@@ -280,35 +320,32 @@ def call_sandbox(
     image_count = sum(1 for b in content_blocks if b.get("contentType") == "image")
 
     log.info(
-        "Sending to Sandbox: model=%s, conv=%s, ~%d tokens, %d images",
-        sandbox_model, conv_id, text_total // CHARS_PER_TOKEN, image_count,
+        "Sending to Sandbox [%s mode]: model=%s, conv=%s, ~%d tokens, %d images",
+        MEMORY_MODE, sandbox_model, conv_id, text_total // CHARS_PER_TOKEN, image_count,
     )
 
     payload = {
-        "conversation_id": conv_id,
+        "conversationId": conv_id,
         "message": {
-            "role": "user",
             "content": content_blocks,
             "model": sandbox_model,
-            "parent_message_id": parent_message_id,
-            "message_id": message_id,
         },
-        "continue_generate": False,
-        "enable_reasoning": False,
+        "continueGenerate": False,
+        "enableReasoning": False,
     }
 
     post_resp = requests.post(
         f"{API_URL}/conversation", headers=BOT_HEADERS, json=payload
     )
     post_resp.raise_for_status()
-    server_message_id = post_resp.json().get("messageId", message_id)
+    server_message_id = post_resp.json().get("messageId")
 
     reply = poll_for_reply(conv_id, server_message_id)
 
-    # Update conversation state for threading
-    conversations[conv_id]["parent_message_id"] = server_message_id
+    if MEMORY_MODE == "server":
+        server_conversation_id = conv_id
 
-    return reply, sandbox_model, conv_id
+    return reply, sandbox_model
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +413,7 @@ def chat_completions(req: ChatCompletionRequest):
     request_id = str(uuid.uuid4())[:8]
 
     try:
-        reply, model_used, conv_id = call_sandbox(
+        reply, model_used = call_sandbox(
             messages=req.messages,
             model=req.model,
         )
@@ -399,9 +436,14 @@ def chat_completions(req: ChatCompletionRequest):
 def list_models():
     """Return available models in OpenAI format."""
     models = [
+        "claude-v4.6-opus",
+        "claude-v4.5-opus",
         "claude-v4.5-sonnet",
-        "claude-v4-sonnet",
-        "claude-v3.5-sonnet",
+        "claude-v4.5-haiku",
+        "amazon-nova-pro",
+        "amazon-nova-lite",
+        "amazon-nova-micro",
+        "qwen3-32b",
     ]
     return {
         "object": "list",

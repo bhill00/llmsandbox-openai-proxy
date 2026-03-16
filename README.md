@@ -4,7 +4,12 @@ A lightweight proxy that exposes an **OpenAI-compatible API** (`/v1/chat/complet
 
 ## Why
 
-The LLM Sandbox Bot API doesn't accept the standard `messages[]` array format that most tools expect. It takes a single text message per request, and responses require polling rather than returning directly. This proxy bridges that gap — it accepts OpenAI-format requests, flattens the messages into a single prompt, handles the polling, and returns a standard OpenAI-format response.
+The LLM Sandbox Bot API doesn't accept the standard `messages[]` array format that most tools expect. It takes a single message per request, and responses require polling rather than returning directly. This proxy bridges that gap — it accepts OpenAI-format requests, translates them to the Sandbox format, handles the polling, and returns a standard OpenAI-format response.
+
+The proxy supports two memory modes:
+
+- **Server mode** (default): Sends only the latest user message each turn. The server maintains conversation history automatically. This is token-efficient — turn N costs the same as turn 1.
+- **Client mode**: Flattens the entire `messages[]` array into a single prompt each turn, with no server-side memory. Useful as a fallback for bots that don't have the conversation memory fix.
 
 ## Quick Start
 
@@ -110,24 +115,36 @@ Environment variables:
 
 - `BEDROCK_API_URL` (required) — LLM Sandbox Bot API URL
 - `BEDROCK_API_KEY` (required) — LLM Sandbox API key
+- `MEMORY_MODE` (default: `server`) — `server` sends only the last user message and lets the server track history; `client` flattens the full messages[] array into every request (legacy behavior)
 - `POLL_INTERVAL` (default: 2) — seconds between polling attempts
 - `POLL_TIMEOUT` (default: 60) — max seconds to wait for a response
 - `DEFAULT_MODEL` (default: claude-v4.5-sonnet) — model used when none specified
 
 ## Model Names
 
-The Sandbox models use names like `claude-v4.5-sonnet`. Use these directly:
+Use the Sandbox model names directly:
 
-- `claude-v4.5-sonnet` — Claude Sonnet 4.5
-- `claude-v4-sonnet` — Claude Sonnet 4
-- `claude-v3.5-sonnet` — Claude Sonnet 3.5
+| Sandbox name | Model |
+|---|---|
+| `claude-v4.6-opus` | Claude 4.6 (Opus) |
+| `claude-v4.5-opus` | Claude 4.5 Opus |
+| `claude-v4.5-sonnet` | Claude 4.5 Sonnet |
+| `claude-v4.5-haiku` | Claude 4.5 Haiku |
+| `amazon-nova-pro` | Amazon Nova Pro |
+| `amazon-nova-lite` | Amazon Nova Lite |
+| `amazon-nova-micro` | Amazon Nova Micro |
+| `qwen3-32b` | Qwen3 32B |
 
-Check with your sandbox administrator for the full list of available models (including Amazon Nova and others). Any model name is passed through to the Sandbox as-is.
+Any model name is passed through to the Sandbox as-is, so new models work without a proxy update.
 
-**Convenience aliases:** If you have existing code that uses OpenAI model names, the proxy maps them automatically so you don't have to change your code:
+**Convenience aliases:** If you have existing code that uses OpenAI or Anthropic API model names, the proxy maps them automatically:
 
-- `gpt-4`, `gpt-4o`, `gpt-4-turbo` → routes to `claude-v4.5-sonnet`
-- `gpt-3.5-turbo` → routes to `claude-v3.5-sonnet`
+- `gpt-4`, `gpt-4o`, `gpt-4-turbo` → `claude-v4.5-sonnet`
+- `gpt-3.5-turbo` → `claude-v4.5-haiku`
+- `claude-opus-4-6` → `claude-v4.6-opus`
+- `claude-opus-4-5` → `claude-v4.5-opus`
+- `claude-sonnet-4-5` → `claude-v4.5-sonnet`
+- `claude-haiku-4-5` → `claude-v4.5-haiku`
 
 These are just aliases for convenience — no GPT models are available through the Sandbox.
 
@@ -174,11 +191,13 @@ Most projects using the OpenAI API don't use function calling at all. Chat compl
 
 ## Important: Token Cost
 
-The Sandbox has **no prompt caching**. Every token is full price, every turn. The proxy flattens your entire messages[] array into a single prompt, so longer conversation histories = proportionally more tokens per request. Unlike the standard OpenAI API where prompt caching discounts repeated prefixes, here every token in every request costs the same.
+The Sandbox has **no prompt caching**. Every token is full price, every turn.
 
-The client (Aider, LangChain, your script) manages the messages array and sends it in full each time. The proxy does not do any context compression — it's a format translator only. If your client sends 50 messages in the array, all 50 get flattened and sent.
+**Server mode** (default) mitigates this: only the latest user message is sent each turn, and the server reconstructs history from its own storage. Turn 10 costs roughly the same as turn 1. This is the recommended mode for most use cases.
 
-Keep conversations short. Reset often. See the [llmsandbox-extension README](https://github.com/bhill00/llmsandbox-extension#understanding-context-tokens-and-cost) for a detailed cost analysis.
+**Client mode** flattens your entire `messages[]` array into a single prompt every turn, so costs grow linearly with conversation length. Use this only if your bot doesn't support server-side conversation memory.
+
+In either mode, keep conversations focused. See the [llmsandbox-extension README](https://github.com/bhill00/llmsandbox-extension#understanding-context-tokens-and-cost) for a detailed cost analysis.
 
 ## License
 
