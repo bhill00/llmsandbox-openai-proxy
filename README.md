@@ -73,6 +73,31 @@ response = llm.invoke("What is NIST 800-171?")
 print(response.content)
 ```
 
+### Vision (image input)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8780/v1",
+    api_key="not-needed",
+)
+
+response = client.chat.completions.create(
+    model="claude-v4.5-sonnet",
+    messages=[{
+        "role": "user",
+        "content": [
+            {"type": "image_url", "image_url": {"url": "https://example.com/photo.png"}},
+            {"type": "text", "text": "What's in this image?"},
+        ],
+    }],
+)
+print(response.choices[0].message.content)
+```
+
+Base64 data URIs also work: `"url": "data:image/png;base64,iVBOR..."`.
+
 ### Aider
 
 ```bash
@@ -113,13 +138,13 @@ These are just aliases for convenience — no GPT models are available through t
 - `/v1/chat/completions` — full messages[] array with system/user/assistant roles
 - `/v1/models` — list available models
 - Multi-turn conversations via messages array
+- **Vision / image inputs** — supports both base64 data URIs and image URLs in OpenAI's `image_url` format. The proxy translates them to the Sandbox's native image content type.
 - Streaming (`stream: true`) — faked by returning the complete response as SSE chunks. Tools won't break, but you don't get real token-by-token output.
 - System prompts, model selection, basic parameters
 
 ### What doesn't work
 
 - **Function calling / tool use** — the Sandbox API accepts tool content types but doesn't return structured tool_use blocks in responses. Tools that rely on structured function call responses (Cursor's edit mode, some LangChain agents) will not work.
-- **Vision / image inputs** — the Sandbox API does support image inputs natively (tested and confirmed), but the proxy does not currently translate OpenAI's image_url format to the Sandbox's base64 image format. This could be added in a future update.
 - **Embeddings** (`/v1/embeddings`) — completely different API, not available through the Sandbox
 - **Files / Assistants / Threads API** — OpenAI-specific features with no Sandbox equivalent
 - **Accurate token usage** — `usage.prompt_tokens` is always 0 (the Sandbox doesn't report input counts). `completion_tokens` is a rough estimate (~4 chars per token). Do not rely on these for cost tracking.

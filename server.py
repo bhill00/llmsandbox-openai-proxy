@@ -10,6 +10,7 @@ Usage:
 
 from __future__ import annotations
 
+import base64
 import os
 import uuid
 import time
@@ -125,34 +126,109 @@ def estimate_tokens(text: str) -> int:
     return len(text) // CHARS_PER_TOKEN
 
 
-def assemble_prompt(messages: List[Message]) -> str:
-    """Convert an OpenAI messages[] array into a single prompt string.
+def _fetch_image_as_base64(url: str) -> Tuple[str, str]:
+    """Fetch an image URL and return (base64_data, media_type)."""
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    content_type = resp.headers.get("content-type", "image/png").split(";")[0].strip()
+    b64 = base64.b64encode(resp.content).decode("utf-8")
+    return b64, content_type
+
+
+def _parse_data_uri(uri: str) -> Tuple[str, str]:
+    """Parse a data:image/...;base64,... URI into (base64_data, media_type)."""
+    # data:image/png;base64,iVBOR...
+    header, b64_data = uri.split(",", 1)
+    media_type = header.split(":")[1].split(";")[0]
+    return b64_data, media_type
+
+
+def _extract_image_content(block: dict) -> Optional[dict]:
+    """Convert an OpenAI image_url content block to Sandbox image format."""
+    image_url = block.get("image_url", {})
+    url = image_url.get("url", "")
+
+    if not url:
+        return None
+
+    try:
+        if url.startswith("data:"):
+            b64_data, media_type = _parse_data_uri(url)
+        else:
+            b64_data, media_type = _fetch_image_as_base64(url)
+
+        return {
+            "contentType": "image",
+            "mediaType": media_type,
+            "body": b64_data,
+        }
+    except Exception as exc:
+        log.warning("Failed to process image: %s", exc)
+        return None
+
+
+def assemble_content(messages: List[Message]) -> List[dict]:
+    """Convert an OpenAI messages[] array into a Sandbox content array.
 
     This is the key translation layer. The Sandbox API expects a single
-    message, so we flatten the conversation into one string.
+    message with a content array, so we flatten the conversation into
+    text blocks with role prefixes, preserving images inline.
     """
-    parts = []
+    content_blocks = []
 
     for msg in messages:
-        content = msg.content
-        # Handle content arrays (multimodal format) — extract text only
-        if isinstance(content, list):
-            text_parts = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text_parts.append(block["text"])
-                elif isinstance(block, str):
-                    text_parts.append(block)
-            content = "\n".join(text_parts)
+        raw = msg.content
 
+        if raw is None:
+            continue
+
+        # Determine role prefix
         if msg.role == "system":
-            parts.append(f"System instructions:\n{content}")
+            prefix = "System instructions"
         elif msg.role == "user":
-            parts.append(f"User: {content}")
+            prefix = "User"
         elif msg.role == "assistant":
-            parts.append(f"Assistant: {content}")
+            prefix = "Assistant"
+        else:
+            prefix = msg.role
 
-    return "\n\n".join(parts)
+        if isinstance(raw, str):
+            # Simple text content
+            content_blocks.append({"contentType": "text", "body": f"{prefix}: {raw}"})
+
+        elif isinstance(raw, list):
+            # Content array (multimodal) — may contain text and images
+            text_parts = []
+            for block in raw:
+                if isinstance(block, str):
+                    text_parts.append(block)
+                elif isinstance(block, dict):
+                    block_type = block.get("type", "")
+
+                    if block_type == "text":
+                        text_parts.append(block.get("text", ""))
+
+                    elif block_type == "image_url":
+                        # Flush accumulated text first
+                        if text_parts:
+                            content_blocks.append({
+                                "contentType": "text",
+                                "body": f"{prefix}: {' '.join(text_parts)}",
+                            })
+                            text_parts = []
+
+                        img = _extract_image_content(block)
+                        if img:
+                            content_blocks.append(img)
+
+            # Flush remaining text
+            if text_parts:
+                content_blocks.append({
+                    "contentType": "text",
+                    "body": f"{prefix}: {' '.join(text_parts)}",
+                })
+
+    return content_blocks
 
 
 def poll_for_reply(conversation_id: str, user_message_id: str) -> str:
@@ -194,19 +270,25 @@ def call_sandbox(
     sandbox_model = resolve_model(model)
     conv_id, parent_message_id = get_or_create_conversation(conversation_id)
 
-    prompt = assemble_prompt(messages)
+    content_blocks = assemble_content(messages)
     message_id = str(uuid.uuid4())
 
+    # Estimate tokens from text blocks only
+    text_total = sum(
+        len(b.get("body", "")) for b in content_blocks if b.get("contentType") == "text"
+    )
+    image_count = sum(1 for b in content_blocks if b.get("contentType") == "image")
+
     log.info(
-        "Sending to Sandbox: model=%s, conv=%s, ~%d tokens",
-        sandbox_model, conv_id, estimate_tokens(prompt),
+        "Sending to Sandbox: model=%s, conv=%s, ~%d tokens, %d images",
+        sandbox_model, conv_id, text_total // CHARS_PER_TOKEN, image_count,
     )
 
     payload = {
         "conversation_id": conv_id,
         "message": {
             "role": "user",
-            "content": [{"contentType": "text", "body": prompt}],
+            "content": content_blocks,
             "model": sandbox_model,
             "parent_message_id": parent_message_id,
             "message_id": message_id,
