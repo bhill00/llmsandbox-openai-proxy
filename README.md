@@ -9,7 +9,7 @@ The LLM Sandbox Bot API doesn't accept the standard `messages[]` array format th
 The proxy supports two memory modes:
 
 - **Server mode** (default): Sends only the latest user message each turn. The server maintains conversation history automatically. This is token-efficient — turn N costs the same as turn 1.
-- **Client mode**: Flattens the entire `messages[]` array into a single prompt each turn, with no server-side memory. Useful as a fallback for bots that don't have the conversation memory fix.
+- **Client mode**: Flattens the entire `messages[]` array into a single prompt each turn, with no server-side memory. Use this if server-side conversation handling is causing problems.
 
 ## Quick Start
 
@@ -195,7 +195,7 @@ The Sandbox has **no prompt caching**. Every token is full price, every turn.
 
 **Server mode** (default) mitigates this: only the latest user message is sent each turn, and the server reconstructs history from its own storage. Turn 10 costs roughly the same as turn 1. This is the recommended mode for most use cases.
 
-**Client mode** flattens your entire `messages[]` array into a single prompt every turn, so costs grow linearly with conversation length. Use this only if your bot doesn't support server-side conversation memory.
+**Client mode** flattens your entire `messages[]` array into a single prompt every turn, so costs grow linearly with conversation length. Use this if server-side conversation handling is causing problems.
 
 In either mode, keep conversations focused. See the [llmsandbox-extension README](https://github.com/bhill00/llmsandbox-extension#understanding-context-tokens-and-cost) for a detailed cost analysis.
 
