@@ -103,35 +103,6 @@ print(response.choices[0].message.content)
 
 Base64 data URIs also work: `"url": "data:image/png;base64,iVBOR..."`.
 
-### PDF / Document input
-
-```python
-import base64
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:8780/v1",
-    api_key="not-needed",
-)
-
-with open("report.pdf", "rb") as f:
-    b64 = base64.b64encode(f.read()).decode()
-
-response = client.chat.completions.create(
-    model="claude-v4.5-sonnet",
-    messages=[{
-        "role": "user",
-        "content": [
-            {"type": "image_url", "image_url": {"url": f"data:application/pdf;base64,{b64}"}},
-            {"type": "text", "text": "Summarize this document."},
-        ],
-    }],
-)
-print(response.choices[0].message.content)
-```
-
-Supported document types: PDF, Word (doc/docx), Excel (xls/xlsx), CSV, HTML, Markdown, and plain text. Use the appropriate MIME type in the data URI (e.g. `application/pdf`, `text/csv`).
-
 ### Aider
 
 ```bash
@@ -184,8 +155,7 @@ These are just aliases for convenience — no GPT models are available through t
 - `/v1/chat/completions` — full messages[] array with system/user/assistant roles
 - `/v1/models` — list available models
 - Multi-turn conversations via messages array
-- **Vision / image inputs** — supports both base64 data URIs and image URLs in OpenAI's `image_url` format. The proxy translates them to the Sandbox's native image content type.
-- **PDF / document inputs** — PDFs, Word docs, Excel files, CSV, HTML, Markdown, and plain text can be sent as base64 data URIs. The proxy detects the MIME type and translates to the Sandbox's attachment format.
+- **Vision / image inputs** — supports both base64 data URIs and image URLs in OpenAI's standard `image_url` format. The proxy translates them to the Sandbox's native image content type.
 - Streaming (`stream: true`) — faked by returning the complete response as SSE chunks. Tools won't break, but you don't get real token-by-token output.
 - System prompts, model selection, basic parameters
 

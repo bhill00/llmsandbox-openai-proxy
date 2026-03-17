@@ -137,33 +137,8 @@ def _parse_data_uri(uri: str) -> Tuple[str, str]:
     return b64_data, media_type
 
 
-ATTACHMENT_MEDIA_TYPES = {
-    "application/pdf",
-    "text/plain",
-    "text/html",
-    "text/markdown",
-    "text/csv",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-}
-
-MEDIA_TYPE_EXTENSIONS = {
-    "application/pdf": "pdf",
-    "text/plain": "txt",
-    "text/html": "html",
-    "text/markdown": "md",
-    "text/csv": "csv",
-    "application/msword": "doc",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-    "application/vnd.ms-excel": "xls",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-}
-
-
 def _extract_image_content(block: dict) -> Optional[dict]:
-    """Convert an OpenAI image_url content block to Sandbox image or attachment format."""
+    """Convert an OpenAI image_url content block to Sandbox image format."""
     image_url = block.get("image_url", {})
     url = image_url.get("url", "")
 
@@ -175,15 +150,6 @@ def _extract_image_content(block: dict) -> Optional[dict]:
             b64_data, media_type = _parse_data_uri(url)
         else:
             b64_data, media_type = _fetch_image_as_base64(url)
-
-        if media_type in ATTACHMENT_MEDIA_TYPES:
-            ext = MEDIA_TYPE_EXTENSIONS.get(media_type, "bin")
-            return {
-                "contentType": "attachment",
-                "fileName": f"document.{ext}",
-                "mediaType": media_type,
-                "body": b64_data,
-            }
 
         return {
             "contentType": "image",
