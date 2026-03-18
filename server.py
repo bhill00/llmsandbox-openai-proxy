@@ -364,20 +364,21 @@ def call_sandbox(
     )
 
     payload = {
-        "conversationId": conv_id,
         "message": {
+            "role": "user",
+            "parent_message_id": None,
             "content": content_blocks,
             "model": sandbox_model,
         },
-        "continueGenerate": False,
-        "enableReasoning": False,
     }
 
     post_resp = requests.post(
         f"{API_URL}/conversation", headers=BOT_HEADERS, json=payload
     )
     post_resp.raise_for_status()
-    server_message_id = post_resp.json().get("messageId")
+    resp_data = post_resp.json()
+    server_message_id = resp_data.get("messageId")
+    conv_id = resp_data.get("conversationId", conv_id)
 
     reply = poll_for_reply(conv_id, server_message_id)
 
