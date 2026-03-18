@@ -31,9 +31,10 @@ log = logging.getLogger("llmsandbox-proxy")
 # ---------------------------------------------------------------------------
 API_URL = os.environ.get("BEDROCK_API_URL")
 API_KEY = os.environ.get("BEDROCK_API_KEY")
-POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "2"))
 POLL_TIMEOUT = int(os.environ.get("POLL_TIMEOUT", "60"))
-POLL_MAX_ATTEMPTS = max(1, POLL_TIMEOUT // max(1, POLL_INTERVAL))
+POLL_INITIAL_INTERVAL = float(os.environ.get("POLL_INITIAL_INTERVAL", "0.3"))
+POLL_BACKOFF_MULTIPLIER = float(os.environ.get("POLL_BACKOFF_MULTIPLIER", "1.5"))
+POLL_MAX_INTERVAL = float(os.environ.get("POLL_MAX_INTERVAL", "5.0"))
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-v4.5-sonnet")
 MEMORY_MODE = os.environ.get("MEMORY_MODE", "server")  # "server" or "client"
 
@@ -301,24 +302,44 @@ def _is_turn_complete(msg: dict) -> bool:
 
 
 def poll_for_reply(conversation_id: str, message_id: str) -> str:
-    """Poll the per-message endpoint until a complete assistant reply appears."""
-    for attempt in range(POLL_MAX_ATTEMPTS):
-        time.sleep(POLL_INTERVAL)
+    """Poll the per-message endpoint until a complete assistant reply appears.
+
+    Uses adaptive exponential backoff: starts at POLL_INITIAL_INTERVAL,
+    multiplies by POLL_BACKOFF_MULTIPLIER each attempt, caps at POLL_MAX_INTERVAL.
+    """
+    interval = POLL_INITIAL_INTERVAL
+    deadline = time.monotonic() + POLL_TIMEOUT
+    attempt = 0
+
+    while time.monotonic() < deadline:
+        time.sleep(interval)
+        attempt += 1
         resp = requests.get(
             f"{API_URL}/conversation/{conversation_id}/{message_id}",
             headers=BOT_HEADERS,
         )
+
+        # 429 rate limited — jump to max interval, don't count as attempt
+        if resp.status_code == 429:
+            log.warning("Poll attempt %d — rate limited, backing off to %.1fs", attempt, POLL_MAX_INTERVAL)
+            interval = POLL_MAX_INTERVAL
+            attempt -= 1
+            continue
+
         # 404 means the reply message doesn't exist yet — keep polling
         if resp.status_code == 404:
-            log.debug("Poll attempt %d/%d — reply not created yet", attempt + 1, POLL_MAX_ATTEMPTS)
+            log.debug("Poll attempt %d — reply not created yet (next in %.1fs)", attempt, interval)
+            interval = min(interval * POLL_BACKOFF_MULTIPLIER, POLL_MAX_INTERVAL)
             continue
+
         resp.raise_for_status()
         data = resp.json()
 
         msg = data.get("message", {})
         if msg.get("role") == "assistant":
             if not _is_turn_complete(msg):
-                log.debug("Poll attempt %d/%d — assistant message not complete (tool use in progress)", attempt + 1, POLL_MAX_ATTEMPTS)
+                log.debug("Poll attempt %d — assistant message not complete (tool use in progress)", attempt)
+                interval = min(interval * POLL_BACKOFF_MULTIPLIER, POLL_MAX_INTERVAL)
                 continue
 
             # Extract text content from the complete response
@@ -331,7 +352,8 @@ def poll_for_reply(conversation_id: str, message_id: str) -> str:
             if text_parts:
                 return "\n\n".join(text_parts)
 
-        log.debug("Poll attempt %d/%d — no reply yet", attempt + 1, POLL_MAX_ATTEMPTS)
+        log.debug("Poll attempt %d — no reply yet (next in %.1fs)", attempt, interval)
+        interval = min(interval * POLL_BACKOFF_MULTIPLIER, POLL_MAX_INTERVAL)
 
     raise HTTPException(status_code=504, detail="Timed out waiting for response from LLM Sandbox")
 

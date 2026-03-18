@@ -116,8 +116,10 @@ Environment variables:
 - `BEDROCK_API_URL` (required) — LLM Sandbox Bot API URL
 - `BEDROCK_API_KEY` (required) — LLM Sandbox API key
 - `MEMORY_MODE` (default: `server`) — `server` sends only the last user message and lets the server track history; `client` flattens the full messages[] array into every request. Use `client` for tools like Cline or Aider that manage their own conversation history — server mode would double the context. Use `server` for simple scripts or one-shot API calls.
-- `POLL_INTERVAL` (default: 2) — seconds between polling attempts
 - `POLL_TIMEOUT` (default: 60) — max seconds to wait for a response
+- `POLL_INITIAL_INTERVAL` (default: 0.3) — initial polling delay in seconds (adaptive backoff starts here)
+- `POLL_BACKOFF_MULTIPLIER` (default: 1.5) — multiplier for exponential backoff between polls
+- `POLL_MAX_INTERVAL` (default: 5.0) — maximum polling interval in seconds
 - `DEFAULT_MODEL` (default: claude-v4.5-sonnet) — model used when none specified
 
 ## Model Names
