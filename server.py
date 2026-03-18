@@ -342,8 +342,6 @@ def poll_for_reply(conversation_id: str, message_id: str) -> str:
                 interval = min(interval * POLL_BACKOFF_MULTIPLIER, POLL_MAX_INTERVAL)
                 continue
 
-            # Extract text content from the complete response
-            content = msg.get("content", [])
             text_parts = [
                 c.get("body", "")
                 for c in content
