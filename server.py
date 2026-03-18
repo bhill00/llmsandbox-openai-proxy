@@ -271,8 +271,37 @@ def assemble_content(messages: List[Message]) -> List[dict]:
     return content_blocks
 
 
+def _is_turn_complete(msg: dict) -> bool:
+    """Check if an assistant message represents a complete turn.
+
+    During agent tool-use loops, the model may produce intermediate messages
+    (acknowledgments, tool_use blocks) before the final answer. We need to
+    wait for the turn to actually be done.
+    """
+    # Check for explicit stop_reason / stopReason field
+    stop_reason = msg.get("stop_reason") or msg.get("stopReason") or ""
+    if stop_reason == "tool_use":
+        return False  # Model wants to call a tool — not done yet
+    if stop_reason in ("end_turn", "stop", "max_tokens"):
+        return True  # Explicitly complete
+
+    # Check content — if only tool_use blocks and no text, likely intermediate
+    content = msg.get("content", [])
+    has_text = any(
+        c.get("contentType") == "text" and c.get("body", "").strip()
+        for c in content
+    )
+    has_tool_use = any(c.get("contentType") == "toolUse" for c in content)
+
+    if has_tool_use and not has_text:
+        return False  # Only tool calls, no text — intermediate
+
+    # If there's text content and no stop_reason field, assume complete
+    return has_text
+
+
 def poll_for_reply(conversation_id: str, message_id: str) -> str:
-    """Poll the per-message endpoint until the assistant reply appears."""
+    """Poll the per-message endpoint until a complete assistant reply appears."""
     for attempt in range(POLL_MAX_ATTEMPTS):
         time.sleep(POLL_INTERVAL)
         resp = requests.get(
@@ -288,9 +317,19 @@ def poll_for_reply(conversation_id: str, message_id: str) -> str:
 
         msg = data.get("message", {})
         if msg.get("role") == "assistant":
+            if not _is_turn_complete(msg):
+                log.debug("Poll attempt %d/%d — assistant message not complete (tool use in progress)", attempt + 1, POLL_MAX_ATTEMPTS)
+                continue
+
+            # Extract text content from the complete response
             content = msg.get("content", [])
-            if content:
-                return content[0].get("body", "")
+            text_parts = [
+                c.get("body", "")
+                for c in content
+                if c.get("contentType") == "text" and c.get("body", "").strip()
+            ]
+            if text_parts:
+                return "\n\n".join(text_parts)
 
         log.debug("Poll attempt %d/%d — no reply yet", attempt + 1, POLL_MAX_ATTEMPTS)
 
