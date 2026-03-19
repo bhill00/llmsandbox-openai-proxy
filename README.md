@@ -109,6 +109,45 @@ Base64 data URIs also work: `"url": "data:image/png;base64,iVBOR..."`.
 aider --openai-api-base http://127.0.0.1:8780/v1 --openai-api-key not-needed --model claude-v4.5-sonnet
 ```
 
+### OpenClaw (experimental)
+
+Add a custom provider in your `openclaw.json`. Note: there is a known issue with tool use on OpenAI-compatible models that has a fix pending in a future release. The `compat` flags below work around it.
+
+```json
+{
+  "models": {
+    "providers": {
+      "localproxy": {
+        "baseUrl": "http://127.0.0.1:8780/v1",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "claude-v4.6-opus",
+            "name": "Local Proxy Claude 4.6 Opus",
+            "compat": {
+              "supportsDeveloperRole": false,
+              "supportsUsageInStreaming": false,
+              "supportsStrictMode": false
+            }
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "localproxy/claude-v4.6-opus",
+        "fallbacks": []
+      },
+      "models": {
+        "localproxy/claude-v4.6-opus": {}
+      }
+    }
+  }
+}
+```
+
 ## Configuration
 
 Environment variables:
@@ -186,6 +225,7 @@ Most projects using the OpenAI API don't use function calling at all. Chat compl
 - **OpenAI Python SDK** — works well for chat completions and vision
 - **LangChain / LlamaIndex** — chains work. Agents that need structured function calling don't.
 - **Cline (VS Code)** — experimental. Requires `MEMORY_MODE=client`. Basic tasks work but polling latency can cause timeouts on longer exchanges.
+- **OpenClaw** — experimental. Requires `compat` flags to disable unsupported features (strict mode, developer role, usage in streaming). See config example above.
 - **Aider** — works well (uses chat completions, parses code from text responses). Use `MEMORY_MODE=client`.
 - **Open WebUI** — basic chat works. Plugin/tool features that rely on function calling won't.
 - **Continue (VS Code)** — basic chat works. Autocomplete and codebase features need function calling/embeddings.
