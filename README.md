@@ -192,6 +192,26 @@ Most projects using the OpenAI API don't use function calling at all. Chat compl
 - **Cursor** — core edit/compose features rely on structured function calling. Basic chat tab might work.
 - **Custom scripts / notebooks** — best use case. Change `base_url` and go.
 
+## Important: Bot Configuration
+
+The Sandbox does **not** support per-request inference parameters. Values like `temperature`, `max_tokens`, and `top_p` sent by clients (LangChain, Cline, etc.) are accepted by the proxy but **ignored by the Sandbox** — the bot's configured settings always win. You must configure these in the Sandbox bot dashboard.
+
+The proxy sends `enableReasoning: false` in each request to suppress extended thinking, but the bot's reasoning budget setting may override this.
+
+### Recommended bot settings by use case
+
+| Setting | RAG / Analysis | Coding (Cline/Aider) | General Chat |
+|---|---|---|---|
+| Max generation | 16000 | 16000 | 4096 |
+| Temperature | 0.1–0.2 | 0.2 | 0.6 |
+| Top-p | 0.95 | 0.95 | 0.999 |
+| Top-k | 128 | 128 | 128 |
+| Reasoning budget | 1024 (minimum) | 1024 (minimum) | 1024+ |
+
+**For RAG pipelines and coding assistants**, low temperature (0.1–0.2) is critical — higher values cause the model to hallucinate facts and deviate from tool-use protocols. If you're using one bot for multiple purposes, 0.2 is a reasonable compromise.
+
+**If per-request parameter control is needed**, the upstream [bedrock-chat](https://github.com/aws-samples/bedrock-chat) project would need to be modified to accept `generation_params` on the `/conversation` endpoint, not just on bot creation/modification. Consider requesting this from your Sandbox admin.
+
 ## Important: Token Cost
 
 The Sandbox has **no prompt caching**. Every token is full price, every turn.
